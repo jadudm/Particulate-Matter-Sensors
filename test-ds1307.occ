@@ -1,0 +1,27 @@
+#INCLUDE "plumbing.module"
+#INCLUDE "ds1307.module"
+
+PROC main ()
+  [3]INT hms:
+  WHILE TRUE
+    SEQ
+      serial.start (0, 9600)
+      ds1307.get.time(hms)
+      SEQ i = 0 FOR 3
+        SEQ
+          IF
+            hms[i] < 10
+              serial.write.string (TX0, "0")
+            TRUE
+              SKIP
+          serial.write.dec.int (TX0, hms[i])
+          IF
+            i <> 2
+              serial.write.string (TX0, ":")
+            TRUE
+              SKIP
+      serial.write.newline (TX0)
+      delay (1000)
+:
+        
+  

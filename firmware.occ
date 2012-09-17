@@ -1,0 +1,130 @@
+#INCLUDE "plumbing.module"
+#INCLUDE "twi3.module"
+#INCLUDE "ds1307.module"
+
+-- Number of characters from the Dylos
+VAL INT DCHAR IS 20:
+
+-- If we were running the low-power version, I could
+-- drop into a sleep mode in 'wait', conserving power.
+-- I would have to manage the SD card power as well.
+-- But, I'm not running that TVM, so... this is just 
+-- in case there's garbage on the serial line.
+
+DATA TYPE READING
+  RECORD
+    BYTE day:
+    BYTE hours:
+    BYTE minutes:
+    [DCHAR]BYTE particle.count:
+:
+
+PROC long.delay (VAL INT seconds)
+  SEQ i = 0 FOR seconds
+    delay (960)
+:
+
+PROC wait.and.ping (VAL INT sec, CHAN SIGNAL done?, ping!)
+  WHILE TRUE
+    SEQ
+      done ? SIGNAL
+      long.delay (sec)
+      ping ! SIGNAL
+:
+
+PROC signal.mux ([]CHAN SIGNAL ctrl, CHAN SIGNAL o!)
+  WHILE TRUE
+    SEQ
+      ALT i = 0 FOR (SIZE ctrl)
+        ctrl[i] ? SIGNAL
+          SKIP
+      o ! SIGNAL
+:
+
+PROC wait.for.dylos (CHAN SIGNAL go?, CHAN [DCHAR]BYTE particle.count!)
+  [DCHAR]BYTE msg:
+  WHILE TRUE
+    SEQ
+      go ? SIGNAL
+
+      -- Zero out the message buffer.
+      SEQ ndx = 0 FOR DCHAR
+        msg[ndx] := 0
+        
+      -- Wait for the Dylos to send us a message.
+      -- The leng variable is coming back as crap.
+      INT bogo:
+      serial.buffer.read ('*n', msg, bogo)
+
+      -- Send that along.
+      particle.count ! msg
+
+:
+
+PROC create.reading (CHAN [DCHAR]BYTE particle.count?, CHAN READING r!)
+  READING pkt:
+  WHILE TRUE
+    SEQ
+      particle.count ? pkt[particle.count]
+      r ! pkt
+:
+
+PROC add.timestamp (CHAN READING in?, out!)
+  [3]INT hms:
+  #PRAGMA DEFINED hms
+  BYTE day:
+  READING pkt:
+  WHILE TRUE
+    SEQ
+      in ? pkt
+      -- Read from the DS1307
+      ds1307.get.time (hms)
+      ds1307.get.day (day)
+      -- Write it into the reading structure
+      pkt[day]     := day
+      pkt[hours]   := (BYTE hms[0])
+      pkt[minutes] := (BYTE hms[1])
+      -- Send the reading along
+      out ! pkt
+:
+
+INLINE PROC serial.write.comma (VAL INT port)
+  serial.write.string (port, ",")
+:
+
+PROC write.to.card (CHAN READING in?, CHAN SIGNAL done!)
+  READING pkt:
+  WHILE TRUE
+    SEQ
+      in ? pkt
+      serial.write.dec.int (TX0, (INT pkt[day]))
+      serial.write.comma (TX0)
+      serial.write.dec.int (TX0, (INT pkt[hours]))
+      serial.write.comma (TX0)
+      serial.write.dec.int (TX0, (INT pkt[minutes]))
+      serial.write.comma (TX0)
+      SEQ ndx = 0 FOR DCHAR
+        IF
+          pkt[particle.count][ndx] > 20
+            serial.write.byte(TX0, pkt[particle.count][ndx])
+          TRUE
+            SKIP
+      serial.write.newline(TX0)
+:
+
+PROC main ()
+  CHAN SIGNAL done, go:
+  [2]CHAN SIGNAL ctrl:
+  CHAN [DCHAR]BYTE particle.count:
+  CHAN READING r0, r1:
+  PAR
+    signal.mux (ctrl, go!)
+    wait.for.dylos (go?, particle.count!)
+    create.reading (particle.count?, r0!)
+    add.timestamp  (r0?, r1!)
+    write.to.card  (r1?, done!)
+    wait.and.ping  (45, done?, ctrl[1]!)
+
+    -- Kick things off.
+    ctrl[0] ! SIGNAL
+:

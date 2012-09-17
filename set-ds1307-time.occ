@@ -1,0 +1,53 @@
+#INCLUDE "plumbing.module"
+#INCLUDE "ds1307.module"
+
+VAL INT HOURS IS       20:
+VAL INT MINUTES IS     39:
+VAL INT SECONDS IS     00:
+-- Arbitrary. Monday will be one.
+VAL BYTE DATE IS 16:
+
+PROC main ()
+  [3]INT hms:
+  #PRAGMA DEFINED hms
+  BYTE date:
+  SEQ
+    serial.start(0, 9600)
+    serial.write.string (TX0, "SETTING TIME*n")
+    delay(1000)
+    
+    ds1307.set.time ([HOURS, MINUTES, SECONDS])
+    ds1307.set.date (DATE)
+    
+    serial.write.string (TX0, "GETTING TIME*n")
+    delay(1000)
+    
+    ds1307.get.time(hms)
+    -- ds1307.get.day(day)
+    
+    -- serial.write.string (TX0, "DATE...*n")
+    -- delay(1000)
+    
+    -- serial.write.int     (TX0, (INT day))
+    -- serial.write.string  (TX0, " - ")
+    SEQ i = 0 FOR 3
+      SEQ
+        IF
+          hms[i] < 10
+            serial.write.string (TX0, "0")
+          TRUE
+            SKIP
+        serial.write.dec.int (TX0, hms[i])
+        IF
+          i <> 2
+            serial.write.string (TX0, ":")
+          TRUE
+            SKIP
+    serial.write.newline (TX0)
+
+    serial.write.string (TX0, "DATE*n")
+    ds1307.get.date (date)
+    serial.write.dec.int (TX0, (INT date))
+    serial.write.newline (TX0)
+
+: 
