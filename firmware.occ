@@ -13,7 +13,7 @@ VAL INT DCHAR IS 20:
 
 DATA TYPE READING
   RECORD
-    BYTE day:
+    BYTE date:
     BYTE hours:
     BYTE minutes:
     [DCHAR]BYTE particle.count:
@@ -25,11 +25,15 @@ PROC long.delay (VAL INT seconds)
 :
 
 PROC wait.and.ping (VAL INT sec, CHAN SIGNAL done?, ping!)
-  WHILE TRUE
-    SEQ
-      done ? SIGNAL
-      long.delay (sec)
-      ping ! SIGNAL
+  SEQ
+    digital.mode (13, OUTPUT)
+    WHILE TRUE
+      SEQ
+        done ? SIGNAL
+        digital.write (13, HIGH)
+        long.delay (sec)
+        digital.write (13, LOW)
+        ping ! SIGNAL
 :
 
 PROC signal.mux ([]CHAN SIGNAL ctrl, CHAN SIGNAL o!)
@@ -58,7 +62,25 @@ PROC wait.for.dylos (CHAN SIGNAL go?, CHAN [DCHAR]BYTE particle.count!)
 
       -- Send that along.
       particle.count ! msg
+:
 
+PROC dummy.dylos (CHAN SIGNAL go?, CHAN [DCHAR]BYTE pc!)
+  [DCHAR]BYTE msg:
+  WHILE TRUE
+    SEQ
+      go ? SIGNAL
+
+      -- Zero out the message buffer.
+      SEQ ndx = 0 FOR DCHAR
+        msg[ndx] := 0
+
+      delay (2000)
+      
+      msg[0] := 'h'
+      msg[1] := 'i'
+      msg[2] := '*n'
+      
+      pc ! msg
 :
 
 PROC create.reading (CHAN [DCHAR]BYTE particle.count?, CHAN READING r!)
@@ -72,16 +94,16 @@ PROC create.reading (CHAN [DCHAR]BYTE particle.count?, CHAN READING r!)
 PROC add.timestamp (CHAN READING in?, out!)
   [3]INT hms:
   #PRAGMA DEFINED hms
-  BYTE day:
+  BYTE date:
   READING pkt:
   WHILE TRUE
     SEQ
       in ? pkt
       -- Read from the DS1307
       ds1307.get.time (hms)
-      ds1307.get.day (day)
+      ds1307.get.date (date)
       -- Write it into the reading structure
-      pkt[day]     := day
+      pkt[date]     := date
       pkt[hours]   := (BYTE hms[0])
       pkt[minutes] := (BYTE hms[1])
       -- Send the reading along
@@ -93,23 +115,29 @@ INLINE PROC serial.write.comma (VAL INT port)
 :
 
 PROC write.to.card (CHAN READING in?, CHAN SIGNAL done!)
-  READING pkt:
-  WHILE TRUE
-    SEQ
-      in ? pkt
-      serial.write.dec.int (TX0, (INT pkt[day]))
-      serial.write.comma (TX0)
-      serial.write.dec.int (TX0, (INT pkt[hours]))
-      serial.write.comma (TX0)
-      serial.write.dec.int (TX0, (INT pkt[minutes]))
-      serial.write.comma (TX0)
-      SEQ ndx = 0 FOR DCHAR
-        IF
-          pkt[particle.count][ndx] > 20
-            serial.write.byte(TX0, pkt[particle.count][ndx])
-          TRUE
-            SKIP
-      serial.write.newline(TX0)
+  SEQ
+    digital.mode (7, OUTPUT)
+    READING pkt:
+    WHILE TRUE
+      SEQ
+        in ? pkt
+        digital.write (7, HIGH)
+        delay (500)
+        serial.write.dec.int (TX0, (INT pkt[date]))
+        serial.write.comma (TX0)
+        serial.write.dec.int (TX0, (INT pkt[hours]))
+        serial.write.comma (TX0)
+        serial.write.dec.int (TX0, (INT pkt[minutes]))
+        serial.write.comma (TX0)
+        SEQ ndx = 0 FOR DCHAR
+          IF
+            pkt[particle.count][ndx] > 20
+              serial.write.byte(TX0, pkt[particle.count][ndx])
+            TRUE
+              SKIP
+        serial.write.newline(TX0)
+        delay (500)
+        digital.write (7, LOW)
 :
 
 PROC main ()
@@ -117,14 +145,17 @@ PROC main ()
   [2]CHAN SIGNAL ctrl:
   CHAN [DCHAR]BYTE particle.count:
   CHAN READING r0, r1:
-  PAR
-    signal.mux (ctrl, go!)
-    wait.for.dylos (go?, particle.count!)
-    create.reading (particle.count?, r0!)
-    add.timestamp  (r0?, r1!)
-    write.to.card  (r1?, done!)
-    wait.and.ping  (45, done?, ctrl[1]!)
+  SEQ
+    serial.setup (TX0, 9600)
+    PAR
+      signal.mux (ctrl, go!)
+      -- wait.for.dylos (go?, particle.count!)
+      dummy.dylos (go?, particle.count!)
+      create.reading (particle.count?, r0!)
+      add.timestamp  (r0?, r1!)
+      write.to.card  (r1?, done!)
+      wait.and.ping  (45, done?, ctrl[1]!)
 
-    -- Kick things off.
-    ctrl[0] ! SIGNAL
+      -- Kick things off.
+      ctrl[0] ! SIGNAL
 :

@@ -4,7 +4,8 @@
 VAL INT HOURS IS       20:
 VAL INT MINUTES IS     39:
 VAL INT SECONDS IS     00:
--- Arbitrary. Monday will be one.
+-- The DS1307 has a 'day' field, which
+-- goes to '7'. So, it is numbered 1 through 7.
 VAL BYTE DATE IS 16:
 
 PROC main ()
