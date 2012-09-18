@@ -5,6 +5,17 @@
 -- Number of characters from the Dylos
 VAL INT DCHAR IS 20:
 
+-- In seconds...
+VAL INT WAIT.SECONDS IS 45:
+
+-- In milliseconds...
+VAL INT CARD.BOOT.TIME IS 500:
+
+-- STATUS LEDs
+VAL INT WAITING.LED IS 13:
+VAL INT OPENLOG.POWER IS 7:
+
+
 -- If we were running the low-power version, I could
 -- drop into a sleep mode in 'wait', conserving power.
 -- I would have to manage the SD card power as well.
@@ -30,9 +41,9 @@ PROC wait.and.ping (VAL INT sec, CHAN SIGNAL done?, ping!)
     WHILE TRUE
       SEQ
         done ? SIGNAL
-        digital.write (13, HIGH)
+        digital.write (WAITING.LED, HIGH)
         long.delay (sec)
-        digital.write (13, LOW)
+        digital.write (WAITING.LED, LOW)
         ping ! SIGNAL
 :
 
@@ -121,8 +132,8 @@ PROC write.to.card (CHAN READING in?, CHAN SIGNAL done!)
     WHILE TRUE
       SEQ
         in ? pkt
-        digital.write (7, HIGH)
-        delay (500)
+        digital.write (OPENLOG.POWER, HIGH)
+        delay (CARD.BOOT.TIME)
         serial.write.dec.int (TX0, (INT pkt[date]))
         serial.write.comma (TX0)
         serial.write.dec.int (TX0, (INT pkt[hours]))
@@ -136,8 +147,12 @@ PROC write.to.card (CHAN READING in?, CHAN SIGNAL done!)
             TRUE
               SKIP
         serial.write.newline(TX0)
-        delay (500)
-        digital.write (7, LOW)
+        delay (CARD.BOOT.TIME)
+        digital.write (OPENLOG.POWER, LOW)
+        -- I forgot this in the first write.
+        -- I suspect this is why I deadlocked...
+        -- And, I was correct. One line.
+        done ! SIGNAL
 :
 
 PROC main ()
@@ -149,12 +164,12 @@ PROC main ()
     serial.setup (TX0, 9600)
     PAR
       signal.mux (ctrl, go!)
-      -- wait.for.dylos (go?, particle.count!)
-      dummy.dylos (go?, particle.count!)
+      wait.for.dylos (go?, particle.count!)
+      -- dummy.dylos (go?, particle.count!)
       create.reading (particle.count?, r0!)
       add.timestamp  (r0?, r1!)
       write.to.card  (r1?, done!)
-      wait.and.ping  (45, done?, ctrl[1]!)
+      wait.and.ping  (WAIT.SECONDS, done?, ctrl[1]!)
 
       -- Kick things off.
       ctrl[0] ! SIGNAL
