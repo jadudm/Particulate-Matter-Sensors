@@ -8,13 +8,8 @@ VAL INT DCHAR IS 20:
 -- In seconds...
 VAL INT WAIT.SECONDS IS 45:
 
--- In milliseconds...
-VAL INT CARD.BOOT.TIME IS 500:
-
 -- STATUS LEDs
 VAL INT WAITING.LED IS 13:
-VAL INT OPENLOG.POWER IS 7:
-
 
 -- If we were running the low-power version, I could
 -- drop into a sleep mode in 'wait', conserving power.
@@ -125,6 +120,18 @@ INLINE PROC serial.write.comma (VAL INT port)
   serial.write.string (port, ",")
 :
 
+PROC openlog.flush ()
+  SEQ
+    SEQ i = 0 FOR 3
+      serial.write.byte (TX0, #1A)
+    serial.write.string (TX0, "sync*n")
+:
+
+-- The OpenLog under v3 firmware will automatically 
+-- sleep to 1.55mA after 1/2sec of not receiving anything.
+-- It wakes and stores on character send, so there is 
+-- no reason for ham-fisted power management in this 
+-- app (ie. turning the OpenLog on and off in the process.)
 PROC write.to.card (CHAN READING in?, CHAN SIGNAL done!)
   SEQ
     digital.mode (7, OUTPUT)
@@ -132,8 +139,6 @@ PROC write.to.card (CHAN READING in?, CHAN SIGNAL done!)
     WHILE TRUE
       SEQ
         in ? pkt
-        digital.write (OPENLOG.POWER, HIGH)
-        delay (CARD.BOOT.TIME)
         serial.write.dec.int (TX0, (INT pkt[date]))
         serial.write.comma (TX0)
         serial.write.dec.int (TX0, (INT pkt[hours]))
@@ -147,12 +152,35 @@ PROC write.to.card (CHAN READING in?, CHAN SIGNAL done!)
             TRUE
               SKIP
         serial.write.newline(TX0)
-        delay (CARD.BOOT.TIME)
-        digital.write (OPENLOG.POWER, LOW)
+        -- Flush to disk.
+        openlog.flush()
+
         -- I forgot this in the first write.
         -- I suspect this is why I deadlocked...
         -- And, I was correct. One line.
         done ! SIGNAL
+:
+
+PROC setup () 
+  [3]INT hms:
+  #PRAGMA DEFINED hms
+  BYTE date:
+  SEQ
+    serial.setup (TX0, 9600)
+    SEQ i = 0 FOR 3
+      SEQ
+        delay (50)
+        serial.write.byte (TX0, #1A)
+    ds1307.get.time (hms)
+    ds1307.get.date (date)
+    -- Write it into the reading structure
+    serial.write.string (TX0, "new HHHC-")
+    serial.write.dec.int (TX0, (INT date))
+    serial.write.string (TX0, "-")
+    serial.write.dec.int (TX0, hms[0])
+    serial.write.string (TX0, "-")
+    serial.write.dec.int (TX0, hms[1])
+    serial.write.string (TX0, ".csv*n")
 :
 
 PROC main ()
@@ -161,7 +189,7 @@ PROC main ()
   CHAN [DCHAR]BYTE particle.count:
   CHAN READING r0, r1:
   SEQ
-    serial.setup (TX0, 9600)
+    setup () 
     PAR
       signal.mux (ctrl, go!)
       wait.for.dylos (go?, particle.count!)

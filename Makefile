@@ -1,5 +1,7 @@
+# Export BAUDRATE=9600
+compile:
+	plumb arduino /dev/null firmware.occ
 all:
-	export BAUDRATE=9600
 	plumb arduino /dev/ttyUSB0 firmware.occ
 
 clean:
