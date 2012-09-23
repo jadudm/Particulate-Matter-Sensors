@@ -2,6 +2,9 @@
 #INCLUDE "twi3.module"
 #INCLUDE "ds1307.module"
 
+-- When doing desting, this should
+-- be defined. It enables a dummy clock and
+-- lets things run faster.
 -- #DEFINE TEST.RUN
 
 -- Number of characters from the Dylos
@@ -11,18 +14,18 @@ VAL INT DCHAR IS 20:
 #IF DEFINED (TEST.RUN)
 VAL INT SLEEP.SECONDS IS 10:
 #ELSE
-VAL INT SLEEP.SECONDS IS 45:
+VAL INT SLEEP.SECONDS IS 50:
 #ENDIF
 
 -- STATUS LEDs
-VAL INT SLEEPING.LED IS 13:
-VAL INT WAITING.FOR.SERIAL.LED IS 8:
+VAL INT SLEEPING.LED IS 7:
+VAL INT WAITING.FOR.SERIAL.LED IS 6:
+VAL INT ISGD.LED IS 5:
 
--- If we were running the low-power version, I could
--- drop into a sleep mode in 'wait', conserving power.
--- I would have to manage the SD card power as well.
--- But, I'm not running that TVM, so... this is just 
--- in case there's garbage on the serial line.
+-- It turns out that the SD card
+-- is automatically slept when nothing 
+-- is being sent... so, really, this is 
+-- almost ready for a low-power TVM.
 
 DATA TYPE READING
   RECORD
@@ -190,6 +193,10 @@ PROC setup ()
 
     digital.mode (SLEEPING.LED, OUTPUT)
     digital.mode (WAITING.FOR.SERIAL.LED, OUTPUT)
+    digital.mode (ISGD.LED, OUTPUT)
+
+    -- This is essentially a power indicator.
+    digital.write (ISGD.LED, HIGH)
 :
 
 PROC main ()
