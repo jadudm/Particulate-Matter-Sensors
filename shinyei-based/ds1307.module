@@ -1,0 +1,91 @@
+--** occam-pi/Plumbing interface to the Sparkfun RTC
+--** This is otherwise known as the DS1307 RTC
+--** https://www.sparkfun.com/products/99
+-- @module ds1307
+
+#IF NOT (DEFINED (DS1307.MODULE))
+#DEFINE DS1307.MODULE
+#INCLUDE "twi3.module"
+
+VAL BYTE DS1307.ADDR IS #68:
+
+INLINE PROC ds1307.write (VAL INT addr, VAL BYTE b)
+  twi.write (DS1307.ADDR, TWI.ADDR.8, addr, b)
+:
+
+INLINE PROC ds1307.read (VAL INT addr, RESULT BYTE b)
+  twi.read (DS1307.ADDR, TWI.ADDR.8, addr, b)
+:
+
+INLINE PROC ds1307.write.many (VAL INT addr, VAL []BYTE bs)
+  #PRAGMA DEFINED bs
+  twi.write.many (DS1307.ADDR, TWI.ADDR.8, addr, bs)
+:
+
+INLINE PROC ds1307.read.many (VAL INT addr, RESULT []BYTE bs)
+  #PRAGMA DEFINED bs
+  twi.read.many (DS1307.ADDR, TWI.ADDR.8, addr, bs)
+:
+
+VAL []INT MASKS IS [#F0, #F0, #30]:
+PROC ds1307.get.time (RESULT [3]INT hms)
+  [3]BYTE  b:
+  #PRAGMA DEFINED b
+  SEQ
+    ds1307.read.many (#00, b)
+    SEQ i = 2 FOR 3 STEP -1
+      hms[2 - i] := ((((INT b[i]) BITAND MASKS[i]) >> 4) * 10) + ((INT b[i]) BITAND #0F)
+:
+
+INLINE PROC ds1307.get.time.raw (RESULT [3]BYTE bcd.smh)
+  ds1307.read.many (#00, bcd.smh)
+:
+
+BYTE FUNCTION to.bcd (VAL BYTE n)
+  BYTE ts, os:
+  VALOF 
+    SEQ
+      ts := n / 10
+      os := n - (ts * 10)
+    RESULT (ts << 4) + os
+:
+      
+PROC ds1307.set.time (VAL [3]INT hms)
+  [3]BYTE bcd.smh:
+  SEQ
+    -- Convert, and reverse the order.
+    SEQ i = 0 FOR 3
+      bcd.smh[2 - i] := to.bcd((BYTE hms[i]))
+    ds1307.write.many (#00, bcd.smh) 
+:
+
+INLINE PROC ds1307.set.day (VAL BYTE day)
+  ds1307.write (#03, to.bcd(day))
+:
+
+INLINE PROC ds1307.set.date (VAL BYTE day)
+  ds1307.write (#04, to.bcd(day))
+:
+
+BYTE FUNCTION to.dec (VAL BYTE n)
+  INT a, b:
+  VALOF 
+    SEQ
+      a := ((INT n) BITAND #0F)
+      b := ((((INT n) BITAND #F0) >> 4) * 10)
+    RESULT (BYTE (a + b))
+:
+
+INLINE PROC ds1307.get.day (RESULT BYTE day)
+  SEQ
+    ds1307.read (#03, day)
+    day := to.dec (day)
+:  
+
+INLINE PROC ds1307.get.date (RESULT BYTE day)
+  SEQ
+    ds1307.read (#04, day)
+    day := to.dec (day)
+:  
+
+#ENDIF

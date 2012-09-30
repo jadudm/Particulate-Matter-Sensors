@@ -1,0 +1,184 @@
+#INCLUDE "plumbing.module"
+#INCLUDE "twi3.module"
+#INCLUDE "ds1307.module"
+
+-- When doing desting, this should
+-- be defined. It enables a dummy clock and
+-- lets things run faster.
+-- #DEFINE TEST.RUN
+
+-- Number of characters from the Dylos
+VAL INT DCHAR IS 20:
+
+-- In seconds...
+#IF DEFINED (TEST.RUN)
+VAL INT SLEEP.SECONDS IS 10:
+#ELSE
+VAL INT SLEEP.SECONDS IS 50:
+#ENDIF
+
+-- STATUS LEDs
+VAL INT SLEEPING.LED IS 7:
+VAL INT WAITING.FOR.SERIAL.LED IS 6:
+VAL INT ISGD.LED IS 5:
+
+-- It turns out that the SD card
+-- is automatically slept when nothing 
+-- is being sent... so, really, this is 
+-- almost ready for a low-power TVM.
+
+DATA TYPE READING
+  RECORD
+    BYTE date:
+    BYTE hours:
+    BYTE minutes:
+    [DCHAR]BYTE particle.count:
+:
+
+PROC long.delay (VAL INT seconds)
+  SEQ i = 0 FOR seconds
+    delay (960)
+:
+
+PROC sleep.and.ping (VAL INT sec, CHAN SIGNAL done?, ping!)
+  SEQ
+    digital.mode (13, OUTPUT)
+    WHILE TRUE
+      SEQ
+        done ? SIGNAL
+        digital.write (SLEEPING.LED, HIGH)
+        long.delay (sec)
+        digital.write (SLEEPING.LED, LOW)
+        ping ! SIGNAL
+:
+
+PROC signal.mux ([]CHAN SIGNAL ctrl, CHAN SIGNAL o!)
+  WHILE TRUE
+    SEQ
+      ALT i = 0 FOR (SIZE ctrl)
+        ctrl[i] ? SIGNAL
+          SKIP
+      o ! SIGNAL
+:
+
+PROC create.reading (CHAN [DCHAR]BYTE particle.count?, CHAN READING r!)
+  READING pkt:
+  WHILE TRUE
+    SEQ
+      particle.count ? pkt[particle.count]
+      r ! pkt
+:
+
+PROC add.timestamp (CHAN READING in?, out!)
+  [3]INT hms:
+  #PRAGMA DEFINED hms
+  BYTE date:
+  READING pkt:
+  WHILE TRUE
+    SEQ
+      in ? pkt
+      -- Read from the DS1307
+      ds1307.get.time (hms)
+      ds1307.get.date (date)
+      -- Write it into the reading structure
+      pkt[date]     := date
+      pkt[hours]   := (BYTE hms[0])
+      pkt[minutes] := (BYTE hms[1])
+      -- Send the reading along
+      out ! pkt
+:
+
+INLINE PROC serial.write.comma (VAL INT port)
+  serial.write.string (port, ",")
+:
+
+INLINE PROC crnl ()
+  SEQ
+    serial.write.byte (TX0, #0D)
+    serial.write.byte (TX0, #0A)
+:
+
+PROC openlog.flush ()
+  SEQ
+    SEQ i = 0 FOR 3
+      serial.write.byte (TX0, #1A)
+    serial.write.string (TX0, "sync")
+    crnl ()
+:
+
+-- The OpenLog under v3 firmware will automatically 
+-- sleep to 1.55mA after 1/2sec of not receiving anything.
+-- It wakes and stores on character send, so there is 
+-- no reason for ham-fisted power management in this 
+-- app (ie. turning the OpenLog on and off in the process.)
+PROC write.to.card (CHAN READING in?, CHAN SIGNAL done!)
+  SEQ
+    digital.mode (7, OUTPUT)
+    READING pkt:
+    WHILE TRUE
+      SEQ
+        in ? pkt
+        serial.write.dec.int (TX0, (INT pkt[date]))
+        serial.write.comma (TX0)
+        serial.write.dec.int (TX0, (INT pkt[hours]))
+        serial.write.comma (TX0)
+        serial.write.dec.int (TX0, (INT pkt[minutes]))
+        serial.write.comma (TX0)
+        SEQ ndx = 0 FOR DCHAR
+          IF
+            pkt[particle.count][ndx] > 20
+              serial.write.byte(TX0, pkt[particle.count][ndx])
+            TRUE
+              SKIP
+        serial.write.newline(TX0)
+        -- Flush to disk.
+        -- This should happen automatically after 5 seconds.
+        -- openlog.flush()
+
+        -- I forgot this in the first write.
+        -- I suspect this is why I deadlocked...
+        -- And, I was correct. One line.
+        done ! SIGNAL
+:
+
+PROC setup () 
+  SEQ
+    serial.setup (TX0, 9600)
+    digital.mode (3, INPUT)
+:
+
+PROC measure.low (VAL INT pin, CHAN INT time!)
+  TIMER t:
+  LEVEL lvl:
+  INT start, end:
+  INITIAL BOOL WAITING IS TRUE:
+  CHAN LEVEL out:
+  PAR
+    digital.input (pin, out!)
+    WHILE TRUE
+      SEQ
+        out ? lvl
+        IF
+          lvl = HIGH
+            SKIP
+          TRUE
+            SEQ
+              t ? start
+              out ? lvl
+              t ? end
+              time ! (end MINUS start)
+:
+
+PROC main ()
+  INT v:
+  CHAN INT time:
+  SEQ
+    setup ()
+    PAR
+      measure.low (3, time!)
+      WHILE TRUE
+        SEQ
+          time ? v
+          serial.write.dec.int (TX0, v)
+          serial.write.newline (TX0)
+:
