@@ -1,12 +1,12 @@
 #INCLUDE "plumbing.module"
 #INCLUDE "ds1307.module"
 
-VAL INT HOURS IS       20:
-VAL INT MINUTES IS     39:
+VAL INT HOURS IS       14:
+VAL INT MINUTES IS     47:
 VAL INT SECONDS IS     00:
 -- The DS1307 has a 'day' field, which
 -- goes to '7'. So, it is numbered 1 through 7.
-VAL BYTE DATE IS 16:
+VAL BYTE DATE IS 20:
 
 PROC main ()
   [3]INT hms:
